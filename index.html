@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06080e">
+<title>Nightstack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a full-bleed sky viewer beside a narrow instrument panel; stacks to one column on phones. */
+:root{
+  --bg:#06080e; --panel:#0d111b; --raise:#141a28; --line:#222a3c;
+  --fg:#e1e6f2; --muted:#8892a8; --accent:#a9c1ff; --accent-ink:#0a1022; --warn:#ffb866; --ok:#7fe0b0;
+  --display:"Unbounded",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+/* Red-light mode keeps dark-adapted eyes intact at the tripod. */
+:root.red{
+  --bg:#070000; --panel:#110202; --raise:#1a0404; --line:#3b0b0b;
+  --fg:#ff5b4c; --muted:#a63a30; --accent:#ff3b2e; --accent-ink:#160000; --warn:#ff7b3c; --ok:#ff5b4c;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--body);
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 380px;min-height:100%}
+@media (max-width:900px){.app{grid-template-columns:minmax(0,1fr)}}
+
+/* Viewer */
+.viewer{position:sticky;top:0;height:100vh;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
+:root.red .viewer{background:#000}
+.viewer video,.viewer canvas{max-width:100%;max-height:100vh;display:block}
+@media (max-width:900px){.viewer{position:relative;height:auto;min-height:52vh}.viewer video,.viewer canvas{max-height:62vh}}
+:root.red .viewer video,:root.red .viewer canvas{filter:grayscale(1) sepia(1) saturate(8) hue-rotate(-45deg) brightness(.65)}
+.empty{max-width:34ch;text-align:center;color:var(--muted);padding:24px}
+.empty h2{font:500 18px/1.3 var(--display);color:var(--fg);margin:0 0 8px;text-wrap:balance}
+.hud{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:12px;display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:500 12px/1 var(--mono);letter-spacing:.04em;padding:6px 9px;border-radius:999px;background:rgba(0,0,0,.6);border:1px solid var(--line);color:var(--fg)}
+.chip.live::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-right:6px;vertical-align:1px}
+.viewtoggle{position:absolute;right:max(12px,env(safe-area-inset-right,0px));top:12px;display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:rgba(0,0,0,.6)}
+.viewtoggle button{border:0;background:none;padding:6px 12px;font:500 12px/1 var(--mono);cursor:pointer;color:var(--muted)}
+.viewtoggle button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.progress{position:absolute;inset:auto 0 0 0;padding:14px max(16px,env(safe-area-inset-left,0px));background:linear-gradient(transparent,rgba(0,0,0,.85));display:flex;flex-direction:column;gap:8px}
+.bigcount{font:700 44px/1 var(--display);font-variant-numeric:tabular-nums}
+.bar{height:4px;background:rgba(255,255,255,.12);border-radius:2px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--accent)}
+
+/* Panel */
+.panel{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:18px 28px;gap:18px;min-width:0}
+@media (max-width:900px){.panel{border-left:0;border-top:1px solid var(--line)}}
+.brand{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand h1{font:700 20px/1 var(--display);letter-spacing:.02em;margin:0}
+.brand h1 span{color:var(--accent)}
+.redbtn{border:1px solid var(--line);background:var(--raise);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
+:root.red .redbtn{border-color:var(--accent)}
+.tabs{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.tabs button{border:0;background:none;padding:10px;cursor:pointer;font-weight:600;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--raise);color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
+section{display:flex;flex-direction:column;gap:14px}
+.label{font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field input[type=number],.field select{background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.unit{font:12px var(--mono);color:var(--muted)}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
+.check input{accent-color:var(--accent);margin-top:3px}
+.check small{display:block;color:var(--muted);font-size:12.5px}
+.btn{border:1px solid var(--line);background:var(--raise);border-radius:10px;padding:11px 14px;font-weight:600;cursor:pointer;text-align:center}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.stop{background:var(--warn);border-color:var(--warn);color:#1a0d00}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>.btn{flex:1 1 140px}
+.row>.btn.sm{flex:none;padding:6px 10px;font-size:13px}
+.note{font-size:12.5px;color:var(--muted);margin:0}
+.note.warn{color:var(--warn)}
+.filebtn{position:relative;overflow:hidden}
+.filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+hr{border:0;border-top:1px solid var(--line);margin:0;width:100%}
+
+/* Modes */
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.mode{border:1px solid var(--line);background:var(--raise);border-radius:10px;padding:10px 8px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:6px}
+.mode canvas{width:100%;height:34px;border-radius:5px;background:#000}
+.mode b{font-size:13px}
+.mode span{font-size:11.5px;color:var(--muted);line-height:1.3}
+.mode[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.slider{display:grid;grid-template-columns:76px minmax(0,1fr) 52px;align-items:center;gap:10px;font-size:13px}
+.slider input{accent-color:var(--accent);width:100%}
+.slider output{font:12px var(--mono);text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+
+/* Frames */
+.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+.frame{position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#000;cursor:pointer}
+.frame img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover}
+.frame figcaption{font:11px/1.2 var(--mono);padding:4px 6px;color:var(--muted);background:var(--raise);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.frame.off img{opacity:.25}
+.frame.off figcaption{text-decoration:line-through}
+.frame .x{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.7);color:#fff;cursor:pointer;font-size:13px;line-height:22px;padding:0}
+.stats{font:12px/1.6 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="viewer" id="viewer">
+    <video id="video" playsinline muted hidden></video>
+    <canvas id="out" hidden></canvas>
+    <div class="empty" id="empty">
+      <h2>Point at the sky, keep the phone still</h2>
+      <p>Nightstack takes a run of short exposures, then overlays them. Averaging gives a cleaner, brighter sky. Keeping the brightest pixel draws star trails.</p>
+      <p>Start the camera, add your own photos, or try it on a simulated sky.</p>
+    </div>
+    <div class="hud" id="hud"></div>
+    <div class="viewtoggle" id="viewtoggle" hidden>
+      <button type="button" id="vLive" aria-pressed="false">Live</button>
+      <button type="button" id="vResult" aria-pressed="true">Result</button>
+    </div>
+    <div class="progress" id="progress" hidden>
+      <div class="row" style="align-items:baseline;justify-content:space-between">
+        <span class="bigcount" id="pBig">5</span>
+        <span class="stats" id="pText"></span>
+      </div>
+      <div class="bar"><i id="pBar"></i></div>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <div class="brand">
+      <h1>Night<span>stack</span></h1>
+      <button class="redbtn" id="redBtn" type="button" aria-pressed="false">Red light</button>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tabCap" aria-selected="true" type="button">1 · Capture</button>
+      <button role="tab" id="tabStack" aria-selected="false" type="button">2 · Stack</button>
+    </div>
+
+    <!-- CAPTURE -->
+    <section id="secCap">
+      <div class="row">
+        <button class="btn" id="camBtn" type="button">Start camera</button>
+        <label class="btn filebtn">Add photos<input type="file" id="fileIn" accept="image/*" multiple></label>
+      </div>
+      <p class="note" id="camNote">Use a tripod or lean the phone on something solid. Turn off the flash.</p>
+
+      <div class="grid2">
+        <div class="field"><label class="label" for="expS">Exposure</label>
+          <input type="number" id="expS" min="0.5" max="30" step="0.5" value="3"><span class="unit">seconds each</span></div>
+        <div class="field"><label class="label" for="shots">Shots</label>
+          <input type="number" id="shots" min="1" max="200" step="1" value="10"><span class="unit">in the sequence</span></div>
+        <div class="field"><label class="label" for="gapS">Gap</label>
+          <input type="number" id="gapS" min="0" max="120" step="1" value="0"><span class="unit">seconds between</span></div>
+        <div class="field"><label class="label" for="delayS">Self-timer</label>
+          <input type="number" id="delayS" min="0" max="30" step="1" value="5"><span class="unit">seconds before start</span></div>
+      </div>
+      <div class="field"><label class="label" for="resSel">Resolution</label>
+        <select id="resSel">
+          <option value="1280">1280 px wide · lighter on memory</option>
+          <option value="1920" selected>1920 px wide</option>
+          <option value="2560">2560 px wide · if the camera allows</option>
+        </select></div>
+      <label class="check"><input type="checkbox" id="manualCam" checked>
+        <span>Push the sensor to its longest exposure<small>Uses manual exposure, ISO and infinity focus where the browser allows it (mostly Chrome on Android).</small></span></label>
+
+      <div class="row">
+        <button class="btn primary" id="runBtn" type="button" disabled>Start sequence</button>
+      </div>
+      <p class="note" id="estNote"></p>
+      <hr>
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <span class="label" id="framesLabel">Frames · 0</span>
+        <div class="row" style="gap:8px">
+          <button class="btn sm" id="demoBtn" type="button">Simulated sky</button>
+          <button class="btn sm" id="clearBtn" type="button" disabled>Clear</button>
+        </div>
+      </div>
+      <div class="frames" id="frames"></div>
+      <p class="note">Tap a frame to leave it out of the stack (a passing car, a plane, a bumped tripod).</p>
+    </section>
+
+    <!-- STACK -->
+    <section id="secStack" hidden>
+      <span class="label">Overlay mode</span>
+      <div class="modes" id="modes">
+        <button class="mode" type="button" data-mode="mean" aria-pressed="true"><canvas width="120" height="34"></canvas><b>Clear sky</b><span>Average. Less noise, fainter stars.</span></button>
+        <button class="mode" type="button" data-mode="max" aria-pressed="false"><canvas width="120" height="34"></canvas><b>Star trails</b><span>Brightest pixel. Stars draw arcs.</span></button>
+        <button class="mode" type="button" data-mode="comet" aria-pressed="false"><canvas width="120" height="34"></canvas><b>Comet trails</b><span>Trails that fade toward the start.</span></button>
+      </div>
+      <label class="check"><input type="checkbox" id="alignChk" checked>
+        <span>Align stars before overlaying<small>Undoes the sky's drift and rotation so stars stay points. Turn off for trails.</small></span></label>
+
+      <span class="label">Develop</span>
+      <div class="slider"><label for="sBlack">Black level</label><input type="range" id="sBlack" min="0" max="0.6" step="0.002" value="0.05"><output id="oBlack"></output></div>
+      <div class="slider"><label for="sGain">Brightness</label><input type="range" id="sGain" min="0" max="6" step="0.01" value="1"><output id="oGain"></output></div>
+      <div class="slider"><label for="sGamma">Stretch</label><input type="range" id="sGamma" min="1" max="3.5" step="0.01" value="1.6"><output id="oGamma"></output></div>
+      <div class="row">
+        <button class="btn" id="autoBtn" type="button">Auto levels</button>
+        <button class="btn primary" id="saveBtn" type="button" disabled>Save PNG</button>
+      </div>
+      <div class="stats" id="stackStats">No frames yet. Capture some, add photos, or load the simulated sky.</div>
+    </section>
+  </aside>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const video = $('video'), out = $('out'), octx = out.getContext('2d');
+const cap = document.createElement('canvas'), cctx = cap.getContext('2d', {willReadFrequently:true});
+const MAXV = 65280; // frames are stored as 16-bit: 8-bit value × 256, keeps the precision gained by averaging
+
+const S = {
+  stream:null, track:null, frames:[], W:0, H:0, running:false, abort:false,
+  mode:'mean', align:true, stacked:null, stale:true, view:'result', wake:null, seq:0
+};
+
+/* ---------- UI helpers ---------- */
+function setTab(t){
+  const cap = t==='cap';
+  $('tabCap').setAttribute('aria-selected', cap); $('tabStack').setAttribute('aria-selected', !cap);
+  $('secCap').hidden = !cap; $('secStack').hidden = cap;
+  if(!cap){ setView('result'); restack(); }
+}
+$('tabCap').onclick = () => setTab('cap');
+$('tabStack').onclick = () => setTab('stack');
+
+$('redBtn').onclick = () => {
+  const on = document.documentElement.classList.toggle('red');
+  $('redBtn').setAttribute('aria-pressed', on);
+  document.querySelector('meta[name=theme-color]').content = on ? '#070000' : '#06080e';
+  drawModeIcons();
+};
+
+function setView(v){
+  S.view = v;
+  const live = v==='live' && S.stream;
+  video.hidden = !live;
+  out.hidden = live || !S.stacked;
+  $('empty').hidden = live || !!S.stacked;
+  $('vLive').setAttribute('aria-pressed', !!live);
+  $('vResult').setAttribute('aria-pressed', !live);
+  $('viewtoggle').hidden = !S.stream;
+  hud();
+}
+$('vLive').onclick = () => setView('live');
+$('vResult').onclick = () => { setView('result'); restack(); };
+
+function hud(){
+  const h = $('hud'); h.textContent = '';
+  const add = (t, cls) => { const s=document.createElement('span'); s.className='chip '+(cls||''); s.textContent=t; h.appendChild(s); };
+  if(S.view==='live' && S.stream){ add('LIVE', 'live'); if(video.videoWidth) add(video.videoWidth+'×'+video.videoHeight); }
+  else if(S.stacked){ add({mean:'CLEAR SKY',max:'STAR TRAILS',comet:'COMET TRAILS'}[S.mode]); add(S.stacked.n+' frames'); }
+}
+
+function estimate(){
+  const e=+$('expS').value||3, n=+$('shots').value||1, g=+$('gapS').value||0, d=+$('delayS').value||0;
+  const t = d + n*e + (n-1)*g;
+  $('estNote').textContent = `${n} × ${e} s = ${fmtDur(n*e)} of exposure, about ${fmtDur(t)} in total. Stars drift about ${(t/240).toFixed(2)}° in that time.`;
+}
+function fmtDur(s){ s=Math.round(s); return s<60 ? s+' s' : Math.floor(s/60)+' min'+(s%60?' '+(s%60)+' s':''); }
+['expS','shots','gapS','delayS'].forEach(id => $(id).addEventListener('input', estimate));
+estimate();
+
+/* ---------- Camera ---------- */
+$('camBtn').onclick = async () => {
+  if(S.stream){ stopCamera(); return; }
+  if(!navigator.mediaDevices?.getUserMedia){
+    $('camNote').textContent = 'This browser cannot open the camera from this page. Open it over https (or localhost), or use Add photos.';
+    $('camNote').className='note warn'; return;
+  }
+  const w = +$('resSel').value;
+  try{
+    S.stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{
+      facingMode:{ideal:'environment'}, width:{ideal:w}, height:{ideal:Math.round(w*9/16)} }});
+  }catch(e){
+    $('camNote').textContent = 'The camera did not open: ' + (e.name==='NotAllowedError' ? 'permission was refused. Allow camera access in the browser settings and try again.' : e.message);
+    $('camNote').className='note warn'; return;
+  }
+  video.srcObject = S.stream; await video.play().catch(()=>{});
+  S.track = S.stream.getVideoTracks()[0];
+  await tuneCamera();
+  $('camBtn').textContent = 'Stop camera';
+  $('runBtn').disabled = false;
+  setView('live');
+};
+function stopCamera(){
+  S.stream?.getTracks().forEach(t=>t.stop()); S.stream=null; S.track=null; video.srcObject=null;
+  $('camBtn').textContent='Start camera'; $('runBtn').disabled=true; setView('result');
+}
+async function tuneCamera(){
+  const t = S.track, notes=[];
+  const caps = t.getCapabilities ? t.getCapabilities() : {};
+  if($('manualCam').checked){
+    const adv = {};
+    if(caps.exposureMode?.includes('manual') && caps.exposureTime){
+      adv.exposureMode='manual';
+      // exposureTime is in units of 100 µs. Cap at 1 s so several frames still land in each exposure.
+      adv.exposureTime = Math.min(caps.exposureTime.max, 10000);
+      notes.push('sensor '+(adv.exposureTime/10000).toFixed(adv.exposureTime<1000?3:2)+' s');
+      if(caps.iso){ adv.iso = Math.min(caps.iso.max, 3200); notes.push('ISO '+adv.iso); }
+    }else if(caps.exposureCompensation){
+      adv.exposureCompensation = caps.exposureCompensation.max; notes.push('exposure +'+caps.exposureCompensation.max);
+    }
+    if(caps.focusMode?.includes('manual') && caps.focusDistance){
+      adv.focusMode='manual'; adv.focusDistance=caps.focusDistance.max; notes.push('focus ∞');
+    }
+    if(caps.torch) adv.torch=false;
+    if(Object.keys(adv).length){
+      try{ await t.applyConstraints({advanced:[adv]}); }catch(e){ notes.length=0; notes.push('manual controls refused, using auto'); }
+    }
+  }
+  const st = t.getSettings ? t.getSettings() : {};
+  $('camNote').className='note';
+  $('camNote').textContent = 'Camera ' + (st.width||video.videoWidth)+'×'+(st.height||video.videoHeight) +
+    (st.frameRate ? ' at '+Math.round(st.frameRate)+' fps' : '') + ' · ' +
+    (notes.length ? notes.join(' · ') : 'automatic exposure (no manual controls in this browser)') +
+    '. Each exposure blends every video frame that arrives in that time.';
+}
+$('manualCam').onchange = () => S.track && tuneCamera();
+
+/* Capture size: long side limited by the resolution setting; later frames match the first. */
+function captureDims(srcW, srcH){
+  if(S.frames.length) return [S.W, S.H];
+  const lim = +$('resSel').value, k = Math.min(1, lim/Math.max(srcW,srcH));
+  return [Math.round(srcW*k), Math.round(srcH*k)];
+}
+
+/* One "long exposure": add up every new video frame for `sec` seconds, then average.
+   Averaging N frames cuts sensor noise by about √N, which is what lets a dark frame be brightened cleanly. */
+function integrate(sec, onTick){
+  const [w,h] = captureDims(video.videoWidth, video.videoHeight);
+  cap.width=w; cap.height=h;
+  const sum = new Float32Array(w*h*3); let n=0;
+  const t0 = performance.now();
+  const next = video.requestVideoFrameCallback ? f => video.requestVideoFrameCallback(f) : f => requestAnimationFrame(f);
+  return new Promise((resolve, reject) => {
+    const step = () => {
+      if(S.abort) return reject(new Error('stopped'));
+      cctx.drawImage(video,0,0,w,h);
+      const d = cctx.getImageData(0,0,w,h).data;
+      for(let i=0,j=0;i<d.length;i+=4,j+=3){ sum[j]+=d[i]; sum[j+1]+=d[i+1]; sum[j+2]+=d[i+2]; }
+      n++;
+      const el = (performance.now()-t0)/1000;
+      onTick(el, n);
+      if(el >= sec){
+        const data = new Uint16Array(w*h*3), k = 256/n;
+        for(let j=0;j<sum.length;j++) data[j] = Math.min(MAXV, sum[j]*k);
+        resolve({data,w,h,n,sec:el});
+      } else next(step);
+    };
+    next(step);
+  });
+}
+
+const wait = (ms, onTick) => new Promise((res, rej) => {
+  const t0=performance.now();
+  const tick = () => {
+    if(S.abort) return rej(new Error('stopped'));
+    const left = ms - (performance.now()-t0);
+    onTick && onTick(left);
+    if(left<=0) res(); else setTimeout(tick, 100);
+  };
+  tick();
+});
+
+$('runBtn').onclick = async () => {
+  if(S.running){ S.abort = true; return; }
+  if(!S.stream) return;
+  const exp=Math.max(0.5,+$('expS').value||3), shots=Math.max(1,Math.round(+$('shots').value||1));
+  const gap=Math.max(0,+$('gapS').value||0), delay=Math.max(0,+$('delayS').value||0);
+  S.running=true; S.abort=false;
+  $('runBtn').textContent='Stop'; $('runBtn').className='btn stop';
+  ['camBtn','demoBtn','clearBtn','resSel'].forEach(id=>$(id).disabled=true);
+  try{ S.wake = await navigator.wakeLock?.request('screen'); }catch(e){}
+  setView('live');
+  const P=$('progress'), big=$('pBig'), txt=$('pText'), bar=$('pBar');
+  P.hidden=false;
+  let done=0;
+  try{
+    if(delay){ await wait(delay*1000, left => { big.textContent=Math.ceil(left/1000); txt.textContent='Hands off. Starting…'; bar.style.width=(100*(1-left/(delay*1000)))+'%'; }); }
+    for(let i=0;i<shots;i++){
+      const f = await integrate(exp, (el,n) => {
+        big.textContent = (i+1)+'/'+shots;
+        txt.textContent = `exposing ${el.toFixed(1)} / ${exp} s · ${n} frames blended`;
+        bar.style.width = (100*(i + Math.min(1,el/exp))/shots)+'%';
+      });
+      addFrame(f, `#${S.frames.length+1} · ${f.sec.toFixed(1)} s`, `${f.n} video frames`);
+      done++;
+      if(gap && i<shots-1) await wait(gap*1000, left => { txt.textContent='gap '+(left/1000).toFixed(1)+' s'; });
+    }
+  }catch(e){ if(e.message!=='stopped') console.error(e); }
+  P.hidden=true; S.running=false; S.abort=false;
+  try{ await S.wake?.release(); }catch(e){} S.wake=null;
+  $('runBtn').textContent='Start sequence'; $('runBtn').className='btn primary';
+  ['camBtn','demoBtn','clearBtn','resSel'].forEach(id=>$(id).disabled=false);
+  updateFrames();
+  if(done){ setTab('stack'); }
+};
+
+/* ---------- Frames ---------- */
+function addFrame(f, label, detail){
+  if(!S.frames.length){ S.W=f.w; S.H=f.h; }
+  f.label=label; f.detail=detail||''; f.on=true; f.id=++S.seq; f.T=null;
+  f.thumb = makeThumb(f);
+  S.frames.push(f); S.stale=true; updateFrames();
+}
+function makeThumb(f){
+  const tw=160, th=Math.round(160*f.h/f.w), c=document.createElement('canvas'); c.width=tw; c.height=th;
+  const x=c.getContext('2d'), im=x.createImageData(tw,th), d=f.data;
+  // quick auto-stretch so dark frames are visible
+  let mx=1; for(let j=0;j<d.length;j+=97) if(d[j]>mx) mx=d[j];
+  const k = 255/Math.max(2000, mx*0.6);
+  for(let y=0;y<th;y++) for(let x2=0;x2<tw;x2++){
+    const sx=Math.floor(x2*f.w/tw), sy=Math.floor(y*f.h/th), s=(sy*f.w+sx)*3, o=(y*tw+x2)*4;
+    im.data[o]=Math.sqrt(d[s]*k/255)*255; im.data[o+1]=Math.sqrt(d[s+1]*k/255)*255; im.data[o+2]=Math.sqrt(d[s+2]*k/255)*255; im.data[o+3]=255;
+  }
+  x.putImageData(im,0,0); return c.toDataURL('image/jpeg',.8);
+}
+function updateFrames(){
+  const box=$('frames'); box.textContent='';
+  for(const f of S.frames){
+    const fig=document.createElement('figure'); fig.className='frame'+(f.on?'':' off'); fig.style.margin='0';
+    fig.tabIndex=0; fig.title=f.detail; fig.setAttribute('role','button'); fig.setAttribute('aria-pressed', f.on);
+    const img=new Image(); img.src=f.thumb; img.alt=f.label;
+    const cap=document.createElement('figcaption'); cap.textContent=f.label;
+    const x=document.createElement('button'); x.className='x'; x.type='button'; x.textContent='×'; x.setAttribute('aria-label','Delete '+f.label);
+    x.onclick = e => { e.stopPropagation(); S.frames=S.frames.filter(g=>g!==f); if(!S.frames.length) S.stacked=null; S.stale=true; updateFrames(); setView(S.view); };
+    const toggle = () => { f.on=!f.on; S.stale=true; updateFrames(); };
+    fig.onclick=toggle; fig.onkeydown = e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
+    fig.append(img,cap,x); box.appendChild(fig);
+  }
+  const on=S.frames.filter(f=>f.on).length;
+  $('framesLabel').textContent = `Frames · ${on}${on!==S.frames.length?' of '+S.frames.length:''}`;
+  $('clearBtn').disabled = !S.frames.length || S.running;
+  $('saveBtn').disabled = !S.stacked;
+}
+$('clearBtn').onclick = () => { S.frames=[]; S.stacked=null; S.stale=true; updateFrames(); setView(S.stream?'live':'result'); };
+
+/* ---------- Upload ---------- */
+$('fileIn').onchange = async e => {
+  const files=[...e.target.files].sort((a,b)=>a.lastModified-b.lastModified || a.name.localeCompare(b.name));
+  e.target.value='';
+  for(const file of files){
+    try{
+      const bmp = await createImageBitmap(file);
+      const [w,h] = captureDims(bmp.width, bmp.height);
+      cap.width=w; cap.height=h; cctx.drawImage(bmp,0,0,w,h); bmp.close?.();
+      const d=cctx.getImageData(0,0,w,h).data, data=new Uint16Array(w*h*3);
+      for(let i=0,j=0;i<d.length;i+=4,j+=3){ data[j]=d[i]<<8; data[j+1]=d[i+1]<<8; data[j+2]=d[i+2]<<8; }
+      addFrame({data,w,h,n:1}, file.name, file.name);
+    }catch(err){ $('camNote').textContent='Could not read '+file.name+'. Use JPEG, PNG or HEIC the browser can open.'; $('camNote').className='note warn'; }
+  }
+  if(files.length) setTab('stack');
+};
+
+/* ---------- Star alignment (translation only) ---------- */
+function findStars(f){
+  const {w,h,data}=f, s=2, gw=Math.floor(w/s), gh=Math.floor(h/s), L=new Float32Array(gw*gh);
+  for(let y=0;y<gh;y++) for(let x=0;x<gw;x++){ const i=((y*s)*w+x*s)*3; L[y*gw+x]=data[i]+2*data[i+1]+data[i+2]; }
+  const samp=[]; for(let i=0;i<L.length;i+=53) samp.push(L[i]); samp.sort((a,b)=>a-b);
+  const med=samp[samp.length>>1], p99=samp[Math.floor(samp.length*.995)];
+  const thr = med + Math.max((p99-med)*0.5, 1500);
+  const pts=[], r=3;
+  for(let y=r;y<gh-r;y++) for(let x=r;x<gw-r;x++){
+    const v=L[y*gw+x]; if(v<thr) continue;
+    let peak=true;
+    for(let dy=-r;dy<=r&&peak;dy++) for(let dx=-r;dx<=r;dx++){ if((dx||dy) && L[(y+dy)*gw+x+dx]>v){ peak=false; break; } }
+    if(peak){
+      // sub-pixel centroid
+      let sx=0,sy=0,sw=0; for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ const q=Math.max(0,L[(y+dy)*gw+x+dx]-med); sx+=q*dx; sy+=q*dy; sw+=q; }
+      pts.push({x:(x+sx/sw)*s, y:(y+sy/sw)*s, v});
+    }
+  }
+  pts.sort((a,b)=>b.v-a.v); return pts.slice(0,70);
+}
+function offsetBetween(ref, stars, maxShift){
+  const votes=new Map(), bin=3;
+  for(const a of ref) for(const b of stars){
+    const dx=b.x-a.x, dy=b.y-a.y; if(Math.abs(dx)>maxShift||Math.abs(dy)>maxShift) continue;
+    const k=Math.round(dx/bin)+','+Math.round(dy/bin); votes.set(k,(votes.get(k)||0)+1);
+  }
+  let best=null, bv=0; for(const [k,v] of votes) if(v>bv){ bv=v; best=k; }
+  if(!best || bv<4) return null;
+  const [bx,by]=best.split(',').map(n=>n*bin);
+  return {dx:bx, dy:by};
+}
+/* Transforms map reference-frame pixels to a frame's pixels: x' = a·x − b·y + tx, y' = b·x + a·y + ty */
+const ID={a:1,b:0,tx:0,ty:0};
+const applyT=(T,p)=>({x:T.a*p.x-T.b*p.y+T.tx, y:T.b*p.x+T.a*p.y+T.ty});
+function pairUp(refPts, pred, stars, tol){
+  const A=[],B=[];
+  for(let i=0;i<pred.length;i++){
+    let best=null, bd=tol*tol;
+    for(const s of stars){ const d=(s.x-pred[i].x)**2+(s.y-pred[i].y)**2; if(d<bd){ bd=d; best=s; } }
+    if(best){ A.push(refPts[i]); B.push(best); }
+  }
+  return [A,B];
+}
+function fitRigid(A,B){ // least-squares rotation + translation
+  let ax=0,ay=0,bx=0,by=0; const n=A.length;
+  for(let i=0;i<n;i++){ ax+=A[i].x; ay+=A[i].y; bx+=B[i].x; by+=B[i].y; }
+  ax/=n; ay/=n; bx/=n; by/=n;
+  let sc=0, ss=0;
+  for(let i=0;i<n;i++){ const px=A[i].x-ax, py=A[i].y-ay, qx=B[i].x-bx, qy=B[i].y-by; sc+=px*qx+py*qy; ss+=px*qy-py*qx; }
+  const th=Math.atan2(ss,sc), a=Math.cos(th), b=Math.sin(th);
+  return {a, b, tx:bx-(a*ax-b*ay), ty:by-(b*ax+a*ay)};
+}
+function computeOffsets(frames){
+  const ref=frames[0]; ref.T=ID;
+  ref.stars = ref.stars || findStars(ref);
+  let failed=0; const maxShift=Math.round(Math.max(S.W,S.H)*0.12);
+  // Predict each frame from the previous one's fit, then fit rotation + translation to matched stars.
+  let T=ID;
+  for(let k=1;k<frames.length;k++){
+    const f=frames[k]; f.stars = f.stars || findStars(f);
+    let ok=false;
+    if(ref.stars.length>=4 && f.stars.length>=4){
+      const pred=ref.stars.map(p=>applyT(T,p));
+      const o=offsetBetween(pred, f.stars, maxShift);
+      if(o){
+        let [A,B]=pairUp(ref.stars, pred.map(p=>({x:p.x+o.dx,y:p.y+o.dy})), f.stars, 6);
+        if(A.length>=3){
+          let T2=fitRigid(A,B);
+          [A,B]=pairUp(ref.stars, ref.stars.map(p=>applyT(T2,p)), f.stars, 2.5);
+          if(A.length>=3) T2=fitRigid(A,B);
+          T=T2; ok=true;
+        }
+      }
+    }
+    if(!ok) failed++;
+    f.T=T;
+  }
+  return {failed, refStars:ref.stars.length};
+}
+
+/* ---------- Stacking ---------- */
+/* Calls fn(o, d, s0, s1, s2, w0..w3) for every output pixel o that the frame covers,
+   with bilinear sample positions s0..s3 (×3 channel offsets) and weights. Identity takes a fast path. */
+function forEachSample(f, fn){
+  const W=S.W, H=S.H, T=f.T||ID;
+  if(T===ID || (Math.abs(T.b)<1e-9 && T.a===1 && Number.isInteger(T.tx) && Number.isInteger(T.ty))){
+    const dx=T.tx, dy=T.ty;
+    for(let y=0;y<H;y++){ const sy=y+dy; if(sy<0||sy>=H) continue;
+      const x0=Math.max(0,-dx), x1=Math.min(W,W-dx);
+      for(let x=x0;x<x1;x++){ const s=(sy*W+x+dx)*3; fn(y*W+x, s, s, s, s, 1, 0, 0, 0); } }
+    return;
+  }
+  for(let y=0;y<H;y++){
+    let sx=T.a*0-T.b*y+T.tx, sy=T.b*0+T.a*y+T.ty;
+    for(let x=0;x<W;x++, sx+=T.a, sy+=T.b){
+      if(sx<0||sy<0||sx>=W-1||sy>=H-1) continue;
+      const ix=sx|0, iy=sy|0, fx=sx-ix, fy=sy-iy, s0=(iy*W+ix)*3;
+      fn(y*W+x, s0, s0+3, s0+W*3, s0+W*3+3, (1-fx)*(1-fy), fx*(1-fy), (1-fx)*fy, fx*fy);
+    }
+  }
+}
+function stack(){
+  const frames=S.frames.filter(f=>f.on); if(!frames.length) return null;
+  const W=S.W, H=S.H, N=W*H*3, acc=new Float32Array(N);
+  let alignInfo=null;
+  if(S.align && frames.length>1) alignInfo=computeOffsets(frames);
+  else frames.forEach(f=>f.T=ID);
+  const t0=performance.now();
+  if(S.mode==='mean'){
+    const cnt=new Uint16Array(W*H);
+    for(const f of frames){
+      const d=f.data;
+      forEachSample(f, (o,s0,s1,s2,s3,w0,w1,w2,w3) => { const oo=o*3;
+        acc[oo]  +=d[s0]*w0+d[s1]*w1+d[s2]*w2+d[s3]*w3;
+        acc[oo+1]+=d[s0+1]*w0+d[s1+1]*w1+d[s2+1]*w2+d[s3+1]*w3;
+        acc[oo+2]+=d[s0+2]*w0+d[s1+2]*w1+d[s2+2]*w2+d[s3+2]*w3; cnt[o]++; });
+    }
+    for(let o=0;o<W*H;o++){ const c=(cnt[o]||1)*MAXV, oo=o*3; acc[oo]/=c; acc[oo+1]/=c; acc[oo+2]/=c; }
+  } else {
+    const fade = S.mode==='comet' ? Math.exp(Math.log(0.08)/Math.max(1,frames.length-1)) : 1;
+    for(const f of frames){
+      const d=f.data;
+      if(fade!==1) for(let j=0;j<N;j++) acc[j]*=fade;
+      forEachSample(f, (o,s0,s1,s2,s3,w0,w1,w2,w3) => { const oo=o*3;
+        const r=(d[s0]*w0+d[s1]*w1+d[s2]*w2+d[s3]*w3)/MAXV, g=(d[s0+1]*w0+d[s1+1]*w1+d[s2+1]*w2+d[s3+1]*w3)/MAXV, b=(d[s0+2]*w0+d[s1+2]*w1+d[s2+2]*w2+d[s3+2]*w3)/MAXV;
+        if(r>acc[oo]) acc[oo]=r; if(g>acc[oo+1]) acc[oo+1]=g; if(b>acc[oo+2]) acc[oo+2]=b; });
+    }
+  }
+  return {acc, W, H, n:frames.length, alignInfo, ms:performance.now()-t0};
+}
+
+let restackTimer=0, firstAuto=true;
+function restack(){
+  clearTimeout(restackTimer);
+  if(!S.frames.some(f=>f.on)){ S.stacked=null; setView('result'); stats(); updateFrames(); return; }
+  if(!S.stale && S.stacked){ develop(); return; }
+  $('stackStats').textContent='Stacking…';
+  restackTimer=setTimeout(() => {
+    S.stacked=stack(); S.stale=false;
+    if(firstAuto){ autoLevels(); firstAuto=false; }
+    develop(); stats(); updateFrames(); setView(S.view==='live' && S.stream ? 'live' : 'result');
+  }, 30);
+}
+
+/* ---------- Develop (levels) ---------- */
+const gainOf = v => Math.pow(2, +v); // slider is in stops
+function develop(){
+  const st=S.stacked; if(!st) return;
+  const black=+$('sBlack').value, gain=gainOf($('sGain').value), gamma=+$('sGamma').value;
+  $('oBlack').textContent=(black*100).toFixed(1)+'%'; $('oGain').textContent='×'+gain.toFixed(gain<10?1:0); $('oGamma').textContent=gamma.toFixed(2);
+  const lut=new Uint8ClampedArray(4097);
+  for(let i=0;i<=4096;i++){ const v=Math.max(0,(i/4096-black)*gain); lut[i]=Math.round(255*Math.pow(Math.min(1,v),1/gamma)); }
+  out.width=st.W; out.height=st.H;
+  const im=octx.createImageData(st.W,st.H), p=im.data, a=st.acc;
+  for(let o=0,j=0;j<a.length;o+=4,j+=3){
+    p[o]=lut[Math.min(4096,a[j]*4096|0)]; p[o+1]=lut[Math.min(4096,a[j+1]*4096|0)]; p[o+2]=lut[Math.min(4096,a[j+2]*4096|0)]; p[o+3]=255;
+  }
+  octx.putImageData(im,0,0);
+}
+function autoLevels(){
+  const st=S.stacked; if(!st) return;
+  const a=st.acc, s=[]; for(let j=0;j<a.length;j+=3*7) s.push((a[j]+2*a[j+1]+a[j+2])/4);
+  s.sort((x,y)=>x-y);
+  const bg=s[Math.floor(s.length*.35)], hi=s[Math.floor(s.length*.9995)];
+  const black=Math.min(0.6, bg*0.92);
+  const gain=Math.min(64, Math.max(1, 0.95/Math.max(1e-4, hi-black)));
+  $('sBlack').value=black; $('sGain').value=Math.log2(gain); $('sGamma').value=S.mode==='mean'?2.0:1.6;
+}
+['sBlack','sGain','sGamma'].forEach(id => $(id).addEventListener('input', develop));
+$('autoBtn').onclick = () => { autoLevels(); develop(); };
+
+function stats(){
+  const st=S.stacked, el=$('stackStats');
+  if(!st){ el.textContent='No frames selected. Capture some, add photos, or load the simulated sky.'; return; }
+  const totalExp=S.frames.filter(f=>f.on).reduce((t,f)=>t+(f.sec||0),0);
+  let lines=[`${st.n} frames · ${st.W}×${st.H} px`+(totalExp?` · ${totalExp.toFixed(1)} s total exposure`:'')];
+  if(S.mode==='mean') lines.push(`noise reduced ≈ ${Math.sqrt(st.n).toFixed(1)}× vs one frame`);
+  if(st.alignInfo){
+    lines.push(`aligned on ${st.alignInfo.refStars} stars`+(st.alignInfo.failed?` · ${st.alignInfo.failed} frame(s) could not be matched`:''));
+  }
+  lines.push(`stacked in ${Math.round(st.ms)} ms`);
+  el.innerHTML=''; lines.forEach(l=>{ const d=document.createElement('div'); d.textContent=l; el.appendChild(d); });
+}
+
+/* ---------- Modes ---------- */
+document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
+  S.mode=b.dataset.mode;
+  document.querySelectorAll('.mode').forEach(x=>x.setAttribute('aria-pressed', x===b));
+  S.align = S.mode==='mean'; $('alignChk').checked=S.align;
+  S.stale=true; firstAuto=true; restack();
+});
+$('alignChk').onchange = e => { S.align=e.target.checked; S.stale=true; restack(); };
+
+function drawModeIcons(){
+  const red=document.documentElement.classList.contains('red'), col=red?'255,70,50':'230,236,255';
+  document.querySelectorAll('.mode').forEach((b,bi) => {
+    const c=b.querySelector('canvas'), x=c.getContext('2d'); x.fillStyle='#000'; x.fillRect(0,0,120,34);
+    let r=7; const pts=[[18,9],[44,22],[70,8],[96,25],[30,28],[84,15],[108,6],[58,30]];
+    pts.forEach(([px,py],i) => {
+      if(bi===0){ x.fillStyle=`rgba(${col},${.6+.4*(i%3)/2})`; x.beginPath(); x.arc(px,py,1.3+(i%3)*.4,0,7); x.fill(); }
+      else { const steps=14; for(let k=0;k<steps;k++){ const a=-0.35+k*0.03, cx=-40, cy=80, dx=px-cx, dy=py-cy;
+        const qx=cx+dx*Math.cos(a)-dy*Math.sin(a)+12, qy=cy+dx*Math.sin(a)+dy*Math.cos(a)+3;
+        const al = bi===1 ? .85 : .08+.9*k/steps; x.fillStyle=`rgba(${col},${al})`; x.fillRect(qx,qy,1.4,1.4); } }
+    });
+  });
+}
+drawModeIcons();
+
+/* ---------- Simulated sky ---------- */
+$('demoBtn').onclick = () => {
+  $('demoBtn').disabled=true; $('demoBtn').textContent='Building…';
+  setTimeout(() => {
+    const W = S.frames.length ? S.W : 1280, H = S.frames.length ? S.H : 800, n=14;
+    let seed=7; const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
+    const stars=[]; for(let i=0;i<650;i++){ const m=Math.pow(rnd(),5); stars.push({x:rnd()*W*1.6-W*.3, y:rnd()*H*1.6-H*.6, a:0.03+m*0.97, t:rnd()}); }
+    const pole={x:W*0.18, y:-H*0.25}, step=0.0045;
+    const horizon = x => H*0.82 + Math.sin(x/90)*14 + Math.sin(x/23)*6 + (x>W*0.62&&x<W*0.7 ? -110*Math.sin(Math.PI*(x-W*0.62)/(W*0.08)) : 0);
+    for(let k=0;k<n;k++){
+      const buf=new Float32Array(W*H*3), ang=k*step, ca=Math.cos(ang), sa=Math.sin(ang);
+      for(let y=0;y<H;y++){ const g=10+18*(y/H); for(let x=0;x<W;x++){ const o=(y*W+x)*3; buf[o]=g*.55; buf[o+1]=g*.62; buf[o+2]=g; } }
+      for(const s of stars){
+        const dx=s.x-pole.x, dy=s.y-pole.y, px=pole.x+dx*ca-dy*sa, py=pole.y+dx*sa+dy*ca;
+        if(px<-4||py<-4||px>W+4||py>H+4) continue;
+        const amp=s.a*(140+90*(0.6+0.4*Math.sin(k*1.7+s.t*9))), sig=0.9+s.a*1.2, R=Math.ceil(sig*3);
+        const tint=[1-0.25*(s.t>.7), 0.95, 0.8+0.3*(s.t<.3)];
+        for(let yy=Math.max(0,Math.floor(py)-R); yy<=Math.min(H-1,Math.floor(py)+R); yy++)
+          for(let xx=Math.max(0,Math.floor(px)-R); xx<=Math.min(W-1,Math.floor(px)+R); xx++){
+            const q=amp*Math.exp(-((xx-px)**2+(yy-py)**2)/(2*sig*sig)), o=(yy*W+xx)*3;
+            buf[o]+=q*tint[0]; buf[o+1]+=q*tint[1]; buf[o+2]+=q*tint[2];
+          }
+      }
+      const data=new Uint16Array(W*H*3);
+      for(let y=0;y<H;y++){ const hz=null; for(let x=0;x<W;x++){
+        const ground = y>horizon(x), o=(y*W+x)*3;
+        for(let c=0;c<3;c++){
+          const noise=(rnd()+rnd()+rnd()-1.5)*22;
+          const v = ground ? 3+noise*.3+ (c===0?2:0) : buf[o+c]+noise;
+          data[o+c]=Math.max(0,Math.min(MAXV, v*256));
+        } } }
+      addFrame({data,w:W,h:H,n:1,sec:3}, `sim ${k+1} · 3.0 s`, 'Simulated frame');
+    }
+    $('demoBtn').disabled=false; $('demoBtn').textContent='Simulated sky';
+    setTab('stack');
+  }, 30);
+};
+
+window.addEventListener('beforeunload', () => S.stream?.getTracks().forEach(t=>t.stop()));
+updateFrames(); setView('result');
+})();
+</script>
+</body>
+</html>
