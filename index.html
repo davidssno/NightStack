@@ -199,13 +199,15 @@ hr{border:0;border-top:1px solid var(--line);margin:0;width:100%}
         <span>Align stars before overlaying<small>Undoes the sky's drift and rotation so stars stay points. Turn off for trails.</small></span></label>
 
       <span class="label">Develop</span>
-      <div class="slider"><label for="sBlack">Black level</label><input type="range" id="sBlack" min="0" max="0.6" step="0.002" value="0.05"><output id="oBlack"></output></div>
-      <div class="slider"><label for="sGain">Brightness</label><input type="range" id="sGain" min="0" max="6" step="0.01" value="1"><output id="oGain"></output></div>
-      <div class="slider"><label for="sGamma">Stretch</label><input type="range" id="sGamma" min="1" max="3.5" step="0.01" value="1.6"><output id="oGamma"></output></div>
+      <div class="slider"><label for="sBlack">Black level</label><input type="range" id="sBlack" min="0" max="0.6" step="0.002" value="0"><output id="oBlack"></output></div>
+      <div class="slider"><label for="sGain">Brightness</label><input type="range" id="sGain" min="-3" max="6" step="0.01" value="0"><output id="oGain"></output></div>
+      <div class="slider"><label for="sGamma">Stretch</label><input type="range" id="sGamma" min="0.5" max="3.5" step="0.01" value="1"><output id="oGamma"></output></div>
       <div class="row">
-        <button class="btn" id="autoBtn" type="button">Auto levels</button>
+        <button class="btn" id="asShotBtn" type="button">As shot</button>
+        <button class="btn" id="autoBtn" type="button">Brighten</button>
         <button class="btn primary" id="saveBtn" type="button" disabled>Save PNG</button>
       </div>
+      <p class="note">As shot keeps the sky as dark as your photos. Brighten stretches it to pull out faint stars.</p>
       <div class="stats" id="stackStats">No frames yet. Capture some, add photos, or load the simulated sky.</div>
     </section>
   </aside>
@@ -417,12 +419,10 @@ function addFrame(f, label, detail){
 function makeThumb(f){
   const tw=160, th=Math.round(160*f.h/f.w), c=document.createElement('canvas'); c.width=tw; c.height=th;
   const x=c.getContext('2d'), im=x.createImageData(tw,th), d=f.data;
-  // quick auto-stretch so dark frames are visible
-  let mx=1; for(let j=0;j<d.length;j+=97) if(d[j]>mx) mx=d[j];
-  const k = 255/Math.max(2000, mx*0.6);
+  // shown exactly as captured, so the strip matches the source photos
   for(let y=0;y<th;y++) for(let x2=0;x2<tw;x2++){
     const sx=Math.floor(x2*f.w/tw), sy=Math.floor(y*f.h/th), s=(sy*f.w+sx)*3, o=(y*tw+x2)*4;
-    im.data[o]=Math.sqrt(d[s]*k/255)*255; im.data[o+1]=Math.sqrt(d[s+1]*k/255)*255; im.data[o+2]=Math.sqrt(d[s+2]*k/255)*255; im.data[o+3]=255;
+    im.data[o]=d[s]>>8; im.data[o+1]=d[s+1]>>8; im.data[o+2]=d[s+2]>>8; im.data[o+3]=255;
   }
   x.putImageData(im,0,0); return c.toDataURL('image/jpeg',.8);
 }
@@ -602,7 +602,7 @@ function restack(){
   $('stackStats').textContent='Stacking…';
   restackTimer=setTimeout(() => {
     S.stacked=stack(); S.stale=false;
-    if(firstAuto){ autoLevels(); firstAuto=false; }
+    if(firstAuto){ asShot(); firstAuto=false; }
     develop(); stats(); updateFrames(); setView(S.view==='live' && S.stream ? 'live' : 'result');
   }, 30);
 }
@@ -612,7 +612,7 @@ const gainOf = v => Math.pow(2, +v); // slider is in stops
 function develop(){
   const st=S.stacked; if(!st) return;
   const black=+$('sBlack').value, gain=gainOf($('sGain').value), gamma=+$('sGamma').value;
-  $('oBlack').textContent=(black*100).toFixed(1)+'%'; $('oGain').textContent='×'+gain.toFixed(gain<10?1:0); $('oGamma').textContent=gamma.toFixed(2);
+  $('oBlack').textContent=(black*100).toFixed(1)+'%'; $('oGain').textContent='×'+gain.toFixed(gain<1?2:gain<10?1:0); $('oGamma').textContent=gamma.toFixed(2);
   const lut=new Uint8ClampedArray(4097);
   for(let i=0;i<=4096;i++){ const v=Math.max(0,(i/4096-black)*gain); lut[i]=Math.round(255*Math.pow(Math.min(1,v),1/gamma)); }
   out.width=st.W; out.height=st.H;
@@ -622,6 +622,24 @@ function develop(){
   }
   octx.putImageData(im,0,0);
 }
+/* "As shot": no stretch, and the sky background held at the level of the source frames.
+   A brightest-pixel stack lifts the background (it keeps every noise peak), so for trails
+   the black level is set to remove exactly that lift while bright stars stay where they were. */
+function medianLum(arr, scale, stride){
+  const s=[]; for(let j=0;j+2<arr.length;j+=3*stride) s.push((arr[j]+2*arr[j+1]+arr[j+2])/(4*scale));
+  s.sort((x,y)=>x-y); return s[s.length>>1]||0;
+}
+function asShot(){
+  const st=S.stacked; let black=0, gain=1;
+  if(st && S.mode!=='mean'){
+    const on=S.frames.filter(f=>f.on);
+    const src = on.reduce((t,f)=>t+medianLum(f.data, MAXV, 29),0)/Math.max(1,on.length);
+    const lift = Math.max(0, medianLum(st.acc, 1, 29) - src);
+    black = Math.min(0.6, lift); gain = 1/(1-black);
+  }
+  $('sBlack').value=black; $('sGain').value=Math.log2(gain); $('sGamma').value=1;
+}
+$('asShotBtn').onclick = () => { asShot(); develop(); };
 function autoLevels(){
   const st=S.stacked; if(!st) return;
   const a=st.acc, s=[]; for(let j=0;j<a.length;j+=3*7) s.push((a[j]+2*a[j+1]+a[j+2])/4);
