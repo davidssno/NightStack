@@ -39,10 +39,13 @@ button,input,select{font:inherit;color:inherit}
 .viewer video,.viewer canvas{max-width:100%;max-height:100vh;display:block}
 @media (max-width:900px){.viewer{position:relative;height:auto;min-height:52vh}.viewer video,.viewer canvas{max-height:62vh}}
 :root.red .viewer video,:root.red .viewer canvas{filter:grayscale(1) sepia(1) saturate(8) hue-rotate(-45deg) brightness(.65)}
+.stage{position:relative;display:inline-block;max-width:100%}
+.stage #marks{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .empty{max-width:34ch;text-align:center;color:var(--muted);padding:24px}
 .empty h2{font:500 18px/1.3 var(--display);color:var(--fg);margin:0 0 8px;text-wrap:balance}
 .hud{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:12px;display:flex;gap:6px;flex-wrap:wrap}
 .chip{font:500 12px/1 var(--mono);letter-spacing:.04em;padding:6px 9px;border-radius:999px;background:rgba(0,0,0,.6);border:1px solid var(--line);color:var(--fg)}
+.chip.count{border-color:var(--accent);color:var(--accent)}
 .chip.live::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-right:6px;vertical-align:1px}
 .viewtoggle{position:absolute;right:max(12px,env(safe-area-inset-right,0px));top:12px;display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:rgba(0,0,0,.6)}
 .viewtoggle button{border:0;background:none;padding:6px 12px;font:500 12px/1 var(--mono);cursor:pointer;color:var(--muted)}
@@ -113,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:0;width:100%}
 <div class="app">
   <div class="viewer" id="viewer">
     <video id="video" playsinline muted hidden></video>
-    <canvas id="out" hidden></canvas>
+    <div class="stage" id="stage" hidden><canvas id="out"></canvas><canvas id="marks" aria-hidden="true"></canvas></div>
     <div class="empty" id="empty">
       <h2>Point at the sky, keep the phone still</h2>
       <p>Nightstack takes a run of short exposures, then overlays them. Averaging gives a cleaner, brighter sky. Keeping the brightest pixel draws star trails.</p>
@@ -198,6 +201,9 @@ hr{border:0;border-top:1px solid var(--line);margin:0;width:100%}
       <label class="check"><input type="checkbox" id="alignChk" checked>
         <span>Align stars before overlaying<small>Undoes the sky's drift and rotation so stars stay points. Turn off for trails.</small></span></label>
 
+      <label class="check"><input type="checkbox" id="markChk">
+        <span>Circle the stars it counted<small>Shown on screen only, not in the saved PNG.</small></span></label>
+
       <span class="label">Develop</span>
       <div class="slider"><label for="sBlack">Black level</label><input type="range" id="sBlack" min="0" max="0.6" step="0.002" value="0"><output id="oBlack"></output></div>
       <div class="slider"><label for="sGain">Brightness</label><input type="range" id="sGain" min="-3" max="6" step="0.01" value="0"><output id="oGain"></output></div>
@@ -217,7 +223,7 @@ hr{border:0;border-top:1px solid var(--line);margin:0;width:100%}
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
-const video = $('video'), out = $('out'), octx = out.getContext('2d');
+const video = $('video'), out = $('out'), octx = out.getContext('2d'), marks = $('marks'), mctx = marks.getContext('2d');
 const cap = document.createElement('canvas'), cctx = cap.getContext('2d', {willReadFrequently:true});
 const MAXV = 65280; // frames are stored as 16-bit: 8-bit value × 256, keeps the precision gained by averaging
 
@@ -240,14 +246,14 @@ $('redBtn').onclick = () => {
   const on = document.documentElement.classList.toggle('red');
   $('redBtn').setAttribute('aria-pressed', on);
   document.querySelector('meta[name=theme-color]').content = on ? '#070000' : '#06080e';
-  drawModeIcons();
+  drawModeIcons(); drawMarks();
 };
 
 function setView(v){
   S.view = v;
   const live = v==='live' && S.stream;
   video.hidden = !live;
-  out.hidden = live || !S.stacked;
+  $('stage').hidden = live || !S.stacked;
   $('empty').hidden = live || !!S.stacked;
   $('vLive').setAttribute('aria-pressed', !!live);
   $('vResult').setAttribute('aria-pressed', !live);
@@ -261,7 +267,7 @@ function hud(){
   const h = $('hud'); h.textContent = '';
   const add = (t, cls) => { const s=document.createElement('span'); s.className='chip '+(cls||''); s.textContent=t; h.appendChild(s); };
   if(S.view==='live' && S.stream){ add('LIVE', 'live'); if(video.videoWidth) add(video.videoWidth+'×'+video.videoHeight); }
-  else if(S.stacked){ add({mean:'CLEAR SKY',max:'STAR TRAILS',comet:'COMET TRAILS'}[S.mode]); add(S.stacked.n+' frames'); }
+  else if(S.stacked){ add({mean:'CLEAR SKY',max:'STAR TRAILS',comet:'COMET TRAILS'}[S.mode]); add(S.stacked.n+' frames'); if(S.starList) add(S.starList.length.toLocaleString()+' stars','count'); }
 }
 
 function estimate(){
@@ -564,14 +570,14 @@ function forEachSample(f, fn){
     }
   }
 }
-function stack(){
+function stack(mode=S.mode, align=S.align){
   const frames=S.frames.filter(f=>f.on); if(!frames.length) return null;
   const W=S.W, H=S.H, N=W*H*3, acc=new Float32Array(N);
   let alignInfo=null;
-  if(S.align && frames.length>1) alignInfo=computeOffsets(frames);
+  if(align && frames.length>1) alignInfo=computeOffsets(frames);
   else frames.forEach(f=>f.T=ID);
   const t0=performance.now();
-  if(S.mode==='mean'){
+  if(mode==='mean'){
     const cnt=new Uint16Array(W*H);
     for(const f of frames){
       const d=f.data;
@@ -582,7 +588,7 @@ function stack(){
     }
     for(let o=0;o<W*H;o++){ const c=(cnt[o]||1)*MAXV, oo=o*3; acc[oo]/=c; acc[oo+1]/=c; acc[oo+2]/=c; }
   } else {
-    const fade = S.mode==='comet' ? Math.exp(Math.log(0.08)/Math.max(1,frames.length-1)) : 1;
+    const fade = mode==='comet' ? Math.exp(Math.log(0.08)/Math.max(1,frames.length-1)) : 1;
     for(const f of frames){
       const d=f.data;
       if(fade!==1) for(let j=0;j<N;j++) acc[j]*=fade;
@@ -597,15 +603,75 @@ function stack(){
 let restackTimer=0, firstAuto=true;
 function restack(){
   clearTimeout(restackTimer);
-  if(!S.frames.some(f=>f.on)){ S.stacked=null; setView('result'); stats(); updateFrames(); return; }
+  if(!S.frames.some(f=>f.on)){ S.stacked=null; S.starList=null; setView('result'); stats(); updateFrames(); return; }
   if(!S.stale && S.stacked){ develop(); return; }
   $('stackStats').textContent='Stacking…';
   restackTimer=setTimeout(() => {
+    // Stars are counted on an aligned average, where they are sharp points and the noise is lowest,
+    // so the count is the same whichever overlay mode is shown. Stack that first; the shown stack last.
+    const t0=performance.now();
+    const ref = (S.mode==='mean' && S.align) ? null : stack('mean', true);
     S.stacked=stack(); S.stale=false;
+    S.starList = detectStars(ref || S.stacked);
+    S.starMs = performance.now()-t0;
     if(firstAuto){ asShot(); firstAuto=false; }
-    develop(); stats(); updateFrames(); setView(S.view==='live' && S.stream ? 'live' : 'result');
+    develop(); drawMarks(); stats(); updateFrames(); setView(S.view==='live' && S.stream ? 'live' : 'result');
   }, 30);
 }
+
+/* ---------- Star count ---------- */
+/* A star is a local peak that stands well clear of the sky around it. The sky level and its noise
+   are measured per 48 px tile (median and MAD), so light pollution gradients and the ground don't
+   count as stars. A peak needs several bright neighbours too, which rejects hot pixels and noise. */
+function detectStars(st){
+  const {acc,W,H}=st, L=new Float32Array(W*H);
+  for(let o=0,j=0;o<L.length;o++,j+=3) L[o]=(acc[j]+2*acc[j+1]+acc[j+2])/4;
+  const T=48, tw=Math.ceil(W/T), th=Math.ceil(H/T), bg=new Float32Array(tw*th), sg=new Float32Array(tw*th);
+  const floor=1.5/255;
+  for(let ty=0;ty<th;ty++) for(let tx=0;tx<tw;tx++){
+    const v=[];
+    for(let y=ty*T;y<Math.min(H,ty*T+T);y+=2) for(let x=tx*T;x<Math.min(W,tx*T+T);x+=2) v.push(L[y*W+x]);
+    v.sort((a,b)=>a-b); const m=v[v.length>>1];
+    const dev=v.map(q=>Math.abs(q-m)).sort((a,b)=>a-b);
+    bg[ty*tw+tx]=m; sg[ty*tw+tx]=Math.max(floor, 1.4826*dev[dev.length>>1]);
+  }
+  const pts=[], r=3, RING=6, ring=new Float32Array(16), ringOff=[];
+  for(let k=0;k<16;k++){ const t=k*Math.PI/8; ringOff.push(Math.round(RING*Math.sin(t))*W+Math.round(RING*Math.cos(t))); }
+  for(let y=r;y<H-r;y++){
+    const ty=Math.floor(y/T);
+    for(let x=r;x<W-r;x++){
+      const o=y*W+x, v=L[o], ti=ty*tw+Math.floor(x/T), b=bg[ti], sd=sg[ti];
+      if(v < b + 6*sd || v - b < 4/255) continue;
+      let peak=true;
+      for(let dy=-r;dy<=r&&peak;dy++){ const row=o+dy*W; for(let dx=-r;dx<=r;dx++){ const q=L[row+dx]; if(q>v || (q===v && (dy<0||(dy===0&&dx<0)))){ if(dx||dy){ peak=false; break; } } } }
+      if(!peak) continue;
+      let lit=0; const half=b+3*sd;
+      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) if((dx||dy) && L[o+dy*W+dx]>half) lit++;
+      if(lit<3) continue;
+      // Shape test: sample a ring 6 px out. A star is a point, so nearly the whole ring sits at sky level.
+      // An edge (horizon, tree, roof) leaves half the ring bright and fails.
+      if(x<RING||y<RING||x>=W-RING||y>=H-RING) continue;
+      for(let k=0;k<16;k++) ring[k]=L[o+ringOff[k]];
+      ring.sort();
+      const rb=ring[7], hi=ring[13];
+      if(v-rb < 6*sd || hi > rb + 0.45*(v-rb)) continue;
+      pts.push({x, y, v:v-rb});
+    }
+  }
+  return pts;
+}
+function drawMarks(){
+  const st=S.stacked, on=$('markChk').checked && st && S.starList;
+  marks.hidden=!on; if(!on) return;
+  marks.width=st.W; marks.height=st.H; mctx.clearRect(0,0,st.W,st.H);
+  const col=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#a9c1ff';
+  const R=Math.max(5, st.W/220);
+  mctx.strokeStyle=col; mctx.lineWidth=Math.max(1, st.W/1100); mctx.globalAlpha=.85;
+  mctx.beginPath();
+  for(const p of S.starList.slice(0,5000)){ mctx.moveTo(p.x+R,p.y); mctx.arc(p.x,p.y,R,0,Math.PI*2); }
+  mctx.stroke();
+}
+$('markChk').onchange = drawMarks;
 
 /* ---------- Develop (levels) ---------- */
 const gainOf = v => Math.pow(2, +v); // slider is in stops
@@ -661,7 +727,8 @@ function stats(){
   if(st.alignInfo){
     lines.push(`aligned on ${st.alignInfo.refStars} stars`+(st.alignInfo.failed?` · ${st.alignInfo.failed} frame(s) could not be matched`:''));
   }
-  lines.push(`stacked in ${Math.round(st.ms)} ms`);
+  if(S.starList) lines.unshift(`${S.starList.length.toLocaleString()} stars counted`+(st.n>1?' on the aligned average':''));
+  lines.push(`stacked and counted in ${Math.round(S.starMs||st.ms)} ms`);
   el.innerHTML=''; lines.forEach(l=>{ const d=document.createElement('div'); d.textContent=l; el.appendChild(d); });
 }
 
